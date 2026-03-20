@@ -17,6 +17,7 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 
 # Load environment variables
 load_dotenv(override=True)
+os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 # UI Configuration
 st.set_page_config(page_title="Agentic RAG Assistant", layout="wide")
 st.title("🤖 Agentic RAG Assistant")
@@ -49,7 +50,9 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
     )
 
     embeddings = GoogleGenerativeAIEmbeddings(
-        model="gemini-embedding-2-preview"
+        model="gemini-embedding-2-preview",
+        google_api_key=api_key
+
     )
 
     # Optimized for large PDFs: smaller chunks to avoid memory bottlenecks
