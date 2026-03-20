@@ -16,8 +16,7 @@ from langchain.agents import create_agent
 from langchain_experimental.agents import create_pandas_dataframe_agent
 
 # Load environment variables
-load_dotenv()
-
+load_dotenv(override=True)
 # UI Configuration
 st.set_page_config(page_title="Agentic RAG Assistant", layout="wide")
 st.title("🤖 Agentic RAG Assistant")
@@ -38,9 +37,14 @@ if "reload_trigger" not in st.session_state:
     st.session_state.reload_trigger = 0
 @st.cache_resource
 def initialize_rag_system(doc_paths, data_path, reload_trigger):
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        st.error("🔑 **Missing API Key**: Please add your GOOGLE_API_KEY to the .env file or Streamlit Secrets.")
+        return None, None, None, 0
+
     llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash",
-        api_key=os.getenv("GOOGLE_API_KEY"),
+        api_key=api_key,
         temperature=0,
     )
 
@@ -109,7 +113,11 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
                 else:
                     st.warning(f"⚠️ Could not split information from {os.path.basename(path)}")
         except Exception as e:
-            st.error(f"❌ Error processing {os.path.basename(path)}: {str(e)}")
+            error_msg = str(e)
+            if "getaddrinfo failed" in error_msg:
+                st.error("🌐 **Network Error**: Unable to reach Google AI services. Please check your internet connection and DNS settings.")
+            else:
+                st.error(f"❌ Error processing {os.path.basename(path)}: {error_msg}")
 
     vectorstore = None
     if vectorstores:
@@ -151,29 +159,30 @@ with st.sidebar:
 
     # 3. Trigger reload if files changed
     if st.button("🔄 Sync & Process Files"):
-        # Process Documents
-        new_doc_paths = []
-        if uploaded_docs:
-            for uploaded_file in uploaded_docs:
-                save_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-                with open(save_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                new_doc_paths.append(save_path)
-        st.session_state.doc_paths = new_doc_paths
-        
-        # Process Data
-        if uploaded_data:
-            save_path_data = os.path.join(UPLOAD_DIR, uploaded_data.name)
-            with open(save_path_data, "wb") as f:
-                f.write(uploaded_data.getbuffer())
-            st.session_state.data_path = save_path_data
-        else:
-            st.session_state.data_path = None
+        with st.spinner("Saving and indexing your files..."):
+            # Process Documents
+            new_doc_paths = []
+            if uploaded_docs:
+                for uploaded_file in uploaded_docs:
+                    save_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    new_doc_paths.append(save_path)
+            st.session_state.doc_paths = new_doc_paths
+            
+            # Process Data
+            if uploaded_data:
+                save_path_data = os.path.join(UPLOAD_DIR, uploaded_data.name)
+                with open(save_path_data, "wb") as f:
+                    f.write(uploaded_data.getbuffer())
+                st.session_state.data_path = save_path_data
+            else:
+                st.session_state.data_path = None
 
-        st.session_state.reload_trigger += 1
-        st.cache_resource.clear() # Clear cache to force reload with new files
-        st.success("Documents synced!")
-        st.rerun()
+            st.session_state.reload_trigger += 1
+            st.cache_resource.clear() # Clear cache to force reload with new files
+            st.success("Documents synced!")
+            st.rerun()
 
     # 4. Display Active Knowledge Base
     if st.session_state.doc_paths or st.session_state.data_path:
