@@ -8,4 +8,4 @@ pandas
 langchain-experimental
 tabulate
 streamlit
-altair
+altair<5
