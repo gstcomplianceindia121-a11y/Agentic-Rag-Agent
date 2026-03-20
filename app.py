@@ -156,6 +156,16 @@ with st.sidebar:
         st.success("Documents synced!")
         st.rerun()
 
+    # 4. Display Active Knowledge Base
+    if st.session_state.doc_paths or st.session_state.data_path:
+        st.divider()
+        st.markdown("### 🟢 Active Knowledge Base")
+        if st.session_state.doc_paths:
+            for doc in st.session_state.doc_paths:
+                st.write(f"- 📄 {os.path.basename(doc)}")
+        if st.session_state.data_path:
+            st.write(f"- 📊 {os.path.basename(st.session_state.data_path)}")
+
 # Initialize the system
 llm, vectorstore, pandas_agent = initialize_rag_system(
     st.session_state.doc_paths, 
@@ -201,25 +211,36 @@ def analyze_data(query: str) -> str:
 
 # Main Router Agent
 @st.cache_resource
-def get_agent(_llm):
+def get_agent(_llm, doc_paths, data_path):
+    doc_names = [os.path.basename(p) for p in doc_paths] if doc_paths else []
+    data_name = os.path.basename(data_path) if data_path else "None"
+    docs_summary = ", ".join(doc_names) if doc_names else "None"
+
+    system_prompt = f"""
+You are an AI assistant that answers questions using provided tools.
+
+### ACTIVE KNOWLEDGE BASE:
+- **Documents**: {docs_summary}
+- **Structured Data**: {data_name}
+
+Follow these rules:
+1. Use `search_docs` for qualitative information from the documents listed above.
+2. Use `analyze_data` for quantitative analysis or math on the structured data file listed above.
+3. Always include the **Source File Name** and **Page Number** (if available) in your response.
+4. If the user asks about a specific file, confirm if it is in your knowledge base above.
+5. If multiple sources are used, mention all clearly.
+"""
     return create_agent(
         model=_llm,
         tools=[search_docs, analyze_data],
-        system_prompt="""
-You are an AI assistant that answers questions using tools.
+        system_prompt=system_prompt
+    )
 
-Use:
-- search_docs → for PDFs, text, resumes
-- analyze_data → for CSV/Excel calculations
-
-Always include:
-- Page number
-- Source file name
-
-If multiple sources are used, mention all clearly.
-""")
-
-agent = get_agent(llm)
+agent = get_agent(
+    llm, 
+    tuple(st.session_state.doc_paths), 
+    st.session_state.data_path
+)
 
 # Sidebar for clear history
 with st.sidebar:
