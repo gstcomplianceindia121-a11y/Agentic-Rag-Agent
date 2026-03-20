@@ -19,7 +19,7 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 load_dotenv(override=True)
 # UI Configuration
 st.set_page_config(page_title="Agentic RAG Assistant", layout="wide")
-st.write("Key loaded:", st.secrets.get("GOOGLE_API_KEY")[:10])
+st.write("Key loaded:", len(st.secrets.get("GOOGLE_API_KEY")))
 st.title("🤖 Agentic RAG Assistant")
 
 # -------------------------------------------------------------
