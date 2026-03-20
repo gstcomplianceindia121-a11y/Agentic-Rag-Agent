@@ -32,14 +32,14 @@ Built with **Streamlit**, **LangChain**, and **Google Gemini**.
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
-   cd Agentic-Agent-Rag
+   git clone https://github.com/gstcomplianceindia121-a11y/Agentic-Rag-Agent.git
+   cd Agentic-Rag-Agent
    ```
 
 2. **Create a virtual environment**:
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   On Windows: venv\Scripts\activate
    ```
 
 3. **Install dependencies**:
