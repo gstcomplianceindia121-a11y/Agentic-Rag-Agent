@@ -36,7 +36,6 @@ if "data_path" not in st.session_state:
     st.session_state.data_path = None
 if "reload_trigger" not in st.session_state:
     st.session_state.reload_trigger = 0
-
 @st.cache_resource
 def initialize_rag_system(doc_paths, data_path, reload_trigger):
     llm = ChatGoogleGenerativeAI(
@@ -49,6 +48,7 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
         model="gemini-embedding-2-preview"
     )
 
+    # Optimized for large PDFs: smaller chunks to avoid memory bottlenecks
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1200,
         chunk_overlap=150
@@ -58,42 +58,58 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
         with open(file_path, "rb") as f:
             return hashlib.md5(f.read()).hexdigest()
 
+    # Consistently manage indexes within the uploads directory
+    INDEX_DIR = os.path.join(UPLOAD_DIR, "faiss_indexes")
+    if not os.path.exists(INDEX_DIR):
+        os.makedirs(INDEX_DIR)
+
     vectorstores = []
+    total_chunks = 0
     existing_files = [p for p in doc_paths if os.path.exists(p)]
 
     for path in existing_files:
-        file_hash = get_file_hash(path)
-        index_path = f"faiss_{file_hash}"
+        try:
+            file_hash = get_file_hash(path)
+            abs_index_path = os.path.join(INDEX_DIR, f"faiss_{file_hash}")
 
-        if os.path.exists(index_path):
-            vs = FAISS.load_local(
-                index_path,
-                embeddings,
-                allow_dangerous_deserialization=True
-            )
-        else:
-            ext = path.split(".")[-1].lower()
-            if ext == "pdf":
-                loader = PyPDFLoader(path)
-            elif ext == "txt":
-                loader = TextLoader(path)
-            elif ext == "docx":
-                loader = Docx2txtLoader(path)
-            else:
-                continue
-
-            docs = loader.load()
-            for doc in docs:
-                doc.metadata["source"] = path
-
-            chunks = text_splitter.split_documents(docs)
-            if chunks:
-                vs = FAISS.from_documents(chunks, embeddings)
-                vs.save_local(index_path)
+            if os.path.exists(abs_index_path):
+                vs = FAISS.load_local(
+                    abs_index_path,
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                # Count chunks for visibility
+                total_chunks += vs.index.ntotal
                 vectorstores.append(vs)
-            continue
+            else:
+                ext = path.split(".")[-1].lower()
+                if ext == "pdf":
+                    loader = PyPDFLoader(path)
+                elif ext == "txt":
+                    loader = TextLoader(path)
+                elif ext == "docx":
+                    loader = Docx2txtLoader(path)
+                else:
+                    continue
 
-        vectorstores.append(vs)
+                docs = loader.load()
+                if not docs:
+                    st.warning(f"⚠️ No content extracted from {os.path.basename(path)}")
+                    continue
+
+                for doc in docs:
+                    doc.metadata["source"] = path
+
+                chunks = text_splitter.split_documents(docs)
+                if chunks:
+                    total_chunks += len(chunks)
+                    vs = FAISS.from_documents(chunks, embeddings)
+                    vs.save_local(abs_index_path)
+                    vectorstores.append(vs)
+                else:
+                    st.warning(f"⚠️ Could not split information from {os.path.basename(path)}")
+        except Exception as e:
+            st.error(f"❌ Error processing {os.path.basename(path)}: {str(e)}")
 
     vectorstore = None
     if vectorstores:
@@ -103,15 +119,18 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
 
     pandas_agent = None
     if data_path and os.path.exists(data_path):
-        df = pd.read_csv(data_path) if data_path.endswith(".csv") else pd.read_excel(data_path)
-        pandas_agent = create_pandas_dataframe_agent(
-            llm,
-            df,
-            verbose=True,
-            allow_dangerous_code=True
-        )
+        try:
+            df = pd.read_csv(data_path) if data_path.endswith(".csv") else pd.read_excel(data_path)
+            pandas_agent = create_pandas_dataframe_agent(
+                llm,
+                df,
+                verbose=True,
+                allow_dangerous_code=True
+            )
+        except Exception as e:
+            st.error(f"❌ Error loading data file: {str(e)}")
 
-    return llm, vectorstore, pandas_agent
+    return llm, vectorstore, pandas_agent, total_chunks
 
 # Sidebar - Files Management
 with st.sidebar:
@@ -163,15 +182,27 @@ with st.sidebar:
         if st.session_state.doc_paths:
             for doc in st.session_state.doc_paths:
                 st.write(f"- 📄 {os.path.basename(doc)}")
+            if "total_chunks" in locals():
+                st.caption(f"Indexed {total_chunks} text blocks")
         if st.session_state.data_path:
             st.write(f"- 📊 {os.path.basename(st.session_state.data_path)}")
 
 # Initialize the system
-llm, vectorstore, pandas_agent = initialize_rag_system(
-    st.session_state.doc_paths, 
-    st.session_state.data_path, 
-    st.session_state.get("reload_trigger", 0)
-)
+with st.spinner("Initializing AI Brain..."):
+    llm, vectorstore, pandas_agent, total_chunks = initialize_rag_system(
+        st.session_state.doc_paths, 
+        st.session_state.data_path, 
+        st.session_state.get("reload_trigger", 0)
+    )
+
+# Final Polish: Show system readiness
+if st.session_state.doc_paths:
+    if vectorstore:
+        st.toast("✅ Vector Database Ready", icon="🧠")
+    else:
+        st.error("❌ Vector Database could not be initialized. Please check your files.")
+elif not st.session_state.doc_paths and not st.session_state.data_path:
+    st.info("👋 Welcome! Please upload your documents or data in the sidebar to get started.")
 
 # -------------------------------------------------------------
 # 2. Define the Agent "Tools"
@@ -184,15 +215,22 @@ def search_docs(query: str) -> str:
     for qualitative information and text retrieval.
     """
     if not vectorstore:
-        return "No documents were loaded in the vector database."
-    results = vectorstore.similarity_search(query, k=5)
-    formatted_result = []
-    for doc in results:
-        content = doc.page_content
-        page = doc.metadata.get("page", "N/A")
-        source = os.path.basename(doc.metadata.get("source", "unknown"))
-        formatted_result.append(f"Source: {source} | Page: {page}\n{content}")
-    return "\n\n---\n\n".join(formatted_result)
+        return "ERROR: No vector database available. User must upload and sync documents first."
+    
+    try:
+        results = vectorstore.similarity_search(query, k=5)
+        if not results:
+            return "No matching information found in the current documents. Try a broader search."
+            
+        formatted_result = []
+        for doc in results:
+            content = doc.page_content
+            page = doc.metadata.get("page", "N/A")
+            source = os.path.basename(doc.metadata.get("source", "unknown"))
+            formatted_result.append(f"Source: {source} | Page: {page}\n{content}")
+        return "\n\n---\n\n".join(formatted_result)
+    except Exception as e:
+        return f"CRITICAL ERROR while searching documents: {str(e)}"
 
 @tool
 def analyze_data(query: str) -> str:
