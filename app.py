@@ -51,7 +51,7 @@ def initialize_rag_system(doc_paths, data_path, reload_trigger):
         return None, None, None, 0
 
     llm = init_chat_model(
-        model="groq:llama-3.3-70b-versatile",
+        model="groq:meta-llama/llama-4-scout-17b-16e-instruct",
         temperature=0,
     )
 
