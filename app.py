@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 # Loaders and RAG
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain.chat_models import init_chat_model
 from langchain_community.vectorstores import FAISS
 
 # Agent and Tools
@@ -17,7 +18,6 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 
 # Load environment variables
 load_dotenv(override=True)
-os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 # UI Configuration
 st.set_page_config(page_title="Agentic RAG Assistant", layout="wide")
 st.title("🤖 Agentic RAG Assistant")
@@ -38,21 +38,23 @@ if "reload_trigger" not in st.session_state:
     st.session_state.reload_trigger = 0
 @st.cache_resource
 def initialize_rag_system(doc_paths, data_path, reload_trigger):
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
+    google_api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
+        st.error("🔑 **Missing API Key**: Please add your GROQ_API_KEY to the .env file or Streamlit Secrets.")
+        return None, None, None, 0
+    if not google_api_key:
         st.error("🔑 **Missing API Key**: Please add your GOOGLE_API_KEY to the .env file or Streamlit Secrets.")
         return None, None, None, 0
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        api_key=api_key,
+    llm = init_chat_model(
+        model="groq:llama-3.3-70b-versatile",
         temperature=0,
     )
 
     embeddings = GoogleGenerativeAIEmbeddings(
         model="gemini-embedding-2-preview",
-        google_api_key=api_key
-
+        google_api_key=google_api_key
     )
 
     # Optimized for large PDFs: smaller chunks to avoid memory bottlenecks
