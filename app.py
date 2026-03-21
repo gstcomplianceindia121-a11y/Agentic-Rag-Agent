@@ -18,6 +18,9 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 
 # Load environment variables
 load_dotenv(override=True)
+os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+
 # UI Configuration
 st.set_page_config(page_title="Agentic RAG Assistant", layout="wide")
 st.title("🤖 Agentic RAG Assistant")
